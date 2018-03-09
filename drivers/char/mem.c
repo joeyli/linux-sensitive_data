@@ -29,6 +29,7 @@
 #include <linux/export.h>
 #include <linux/io.h>
 #include <linux/uio.h>
+#include <linux/sensitive_data.h>
 
 #include <linux/uaccess.h>
 
@@ -107,6 +108,7 @@ static ssize_t read_mem(struct file *file, char __user *buf,
 	phys_addr_t p = *ppos;
 	ssize_t read, sz;
 	void *ptr;
+	void *kbuf;
 
 	if (p != *ppos)
 		return 0;
@@ -129,6 +131,9 @@ static ssize_t read_mem(struct file *file, char __user *buf,
 	}
 #endif
 
+	kbuf = (char *)__get_free_page(GFP_KERNEL);
+	if (!kbuf)
+		return -ENOMEM;
 	while (count > 0) {
 		unsigned long remaining;
 		int allowed;
@@ -151,7 +156,17 @@ static ssize_t read_mem(struct file *file, char __user *buf,
 			if (!ptr)
 				return -EFAULT;
 
-			remaining = copy_to_user(buf, ptr, sz);
+			if (has_sensitive_data_pa((unsigned long) p, sz)) {
+				int blanked;
+				memcpy(kbuf, ptr, sz);
+				/* blank the sensitive data in kbuf */
+				blanked = blank_sensitive_data_pa((unsigned long) p, sz, kbuf);
+				pr_debug("read_mem blanked address: %#010llx size: %d\n",
+					 (unsigned long long) p, blanked);
+				remaining = copy_to_user(buf, kbuf, sz);
+			} else {
+				remaining = copy_to_user(buf, ptr, sz);
+			}
 
 			unxlate_dev_mem_ptr(p, ptr);
 		}
@@ -164,6 +179,7 @@ static ssize_t read_mem(struct file *file, char __user *buf,
 		count -= sz;
 		read += sz;
 	}
+	free_page((unsigned long) kbuf);
 
 	*ppos += read;
 	return read;
@@ -411,6 +427,7 @@ static ssize_t read_kmem(struct file *file, char __user *buf,
 	unsigned long p = *ppos;
 	ssize_t low_count, read, sz;
 	char *kbuf; /* k-addr because vread() takes vmlist_lock rwlock */
+	char *uncached;
 	int err = 0;
 
 	read = 0;
@@ -432,6 +449,9 @@ static ssize_t read_kmem(struct file *file, char __user *buf,
 			count -= sz;
 		}
 #endif
+		kbuf = (char *)__get_free_page(GFP_KERNEL);
+		if (!kbuf)
+			return -ENOMEM;
 		while (low_count > 0) {
 			sz = size_inside_page(p, low_count);
 
@@ -440,21 +460,33 @@ static ssize_t read_kmem(struct file *file, char __user *buf,
 			 * uncached, then it must also be accessed uncached
 			 * by the kernel or data corruption may occur
 			 */
-			kbuf = xlate_dev_kmem_ptr((void *)p);
-			if (!virt_addr_valid(kbuf))
+			uncached = xlate_dev_kmem_ptr((void *)p);
+			if (!virt_addr_valid(uncached))
 				return -ENXIO;
 
-			if (copy_to_user(buf, kbuf, sz))
-				return -EFAULT;
+			if (has_sensitive_data_va((void *) p, sz)) {
+				int blanked;
+				memcpy(kbuf, uncached, sz);
+				blanked = blank_sensitive_data_va((void *) p, sz, kbuf);
+				pr_debug("read_kmem blanked low address: %#010llx size: %d\n",
+					 (unsigned long long) p, blanked);
+				if (copy_to_user(buf, kbuf, sz))
+					return -EFAULT;
+			} else {
+				if (copy_to_user(buf, uncached, sz))
+					return -EFAULT;
+			}
 			buf += sz;
 			p += sz;
 			read += sz;
 			low_count -= sz;
 			count -= sz;
 		}
+		free_page((unsigned long) kbuf);
 	}
 
 	if (count > 0) {
+		int blanked;
 		kbuf = (char *)__get_free_page(GFP_KERNEL);
 		if (!kbuf)
 			return -ENOMEM;
@@ -467,6 +499,9 @@ static ssize_t read_kmem(struct file *file, char __user *buf,
 			sz = vread(kbuf, (char *)p, sz);
 			if (!sz)
 				break;
+			blanked = blank_sensitive_data_va((void *) p, sz, kbuf);
+			pr_debug("read_kmem blanked address: %#010llx size: %d\n",
+				 (unsigned long long) p, blanked);
 			if (copy_to_user(buf, kbuf, sz)) {
 				err = -EFAULT;
 				break;
