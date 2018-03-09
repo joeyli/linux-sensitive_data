@@ -216,6 +216,18 @@ config STATIC_USERMODEHELPER_PATH
 	  If you wish for all usermode helper programs to be disabled,
 	  specify an empty string here (i.e. "").
 
+config SENSITIVE_DATA_TREE
+	bool "Sensitive data tree for collecting sensitive data"
+	default n
+	help
+	  There have some sensitive data should not be leaked to user
+	  space. e.g. Kernel master key in root keyring, trusted key,
+	  EVM key...
+
+	  Those registered data in sensitive data tree will be filtered
+	  out when user space accesses /dev/mem, /dev/kmem, hibernation,
+	  kdump.
+
 source security/selinux/Kconfig
 source security/smack/Kconfig
 source security/tomoyo/Kconfig
