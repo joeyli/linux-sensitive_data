@@ -364,6 +364,7 @@ pr_info("blank_sensitive_data_impl() start_va: %#010llx		size: %ld\n", (unsigned
 			if (blank_size) {
 				memset(buf + offset, 0, blank_size);
 				blanked += blank_size;
+				pr_info("blanked+= %d\n", blanked);
 			}
 		}
 	}
@@ -397,6 +398,7 @@ ssize_t blank_sensitive_data_va(void *va, unsigned long size, void *buf)
 		buf += sz;
 	}
 
+	pr_info("blank_sensitive_data_va() blanked: %ld", blanked);
 	return blanked;
 }
 EXPORT_SYMBOL_GPL(blank_sensitive_data_va);
@@ -417,6 +419,7 @@ ssize_t blank_sensitive_data_pa(unsigned long pa, unsigned long size,
 		buf += sz;
 	}
 
+	pr_info("blank_sensitive_data_pa() blanked: %ld", blanked);
 	return blanked;
 }
 EXPORT_SYMBOL_GPL(blank_sensitive_data_pa);
