@@ -19,6 +19,7 @@
 #include <linux/crypto.h>
 #include <linux/xattr.h>
 #include <linux/evm.h>
+#include <linux/sensitive_data.h>
 #include <keys/encrypted-type.h>
 #include <crypto/hash.h>
 #include "evm.h"
@@ -60,6 +61,12 @@ int evm_set_key(void *key, size_t keylen)
 	if (keylen > MAX_KEY_SIZE)
 		goto inval;
 	memcpy(evmkey, key, keylen);
+	if (!(evm_initialized & EVM_INIT_HMAC)) {
+		int ret;
+		ret = register_sensitive_data(evmkey, MAX_KEY_SIZE, EVMKEY);
+		if (ret < 0)
+			pr_err("register sensitive data failed: %d\n", ret);
+	}
 	evm_initialized |= EVM_INIT_HMAC;
 	pr_info("key initialized\n");
 	return 0;
