@@ -29,6 +29,7 @@
 #include <linux/capability.h>
 #include <linux/tpm.h>
 #include <linux/tpm_command.h>
+#include <linux/sensitive_data.h>
 
 #include "trusted.h"
 
@@ -1002,6 +1003,13 @@ static int trusted_instantiate(struct key *key,
 		goto out;
 	}
 
+	if (payload->key != NULL && payload->key_len) {
+		int ret;
+		ret = register_sensitive_data(payload->key, payload->key_len, key->description);
+		if (ret < 0)
+			pr_err("register key sensitive data failed: %d\n", ret);
+	}
+
 	dump_payload(payload);
 	dump_options(options);
 
@@ -1041,8 +1049,10 @@ out:
 	kzfree(options);
 	if (!ret)
 		rcu_assign_keypointer(key, payload);
-	else
+	else {
+		unregister_sensitive_data(payload->key, payload->key_len, key->description);
 		kzfree(payload);
+	}
 	return ret;
 }
 
@@ -1125,6 +1135,10 @@ static int trusted_update(struct key *key, struct key_preparsed_payload *prep)
 		}
 	}
 	rcu_assign_keypointer(key, new_p);
+	unregister_sensitive_data(p->key, p->key_len, key->description);
+	ret = register_sensitive_data(new_p->key, new_p->key_len, key->description);
+	if (ret < 0)
+		pr_err("register key sensitive data failed: %d\n", ret);
 	call_rcu(&p->rcu, trusted_rcu_free);
 out:
 	kzfree(datablob);
@@ -1170,6 +1184,10 @@ static long trusted_read(const struct key *key, char __user *buffer,
  */
 static void trusted_destroy(struct key *key)
 {
+	struct trusted_key_payload *p;
+
+	p = key->payload.data[0];
+	unregister_sensitive_data(p->key, p->key_len, key->description);
 	kzfree(key->payload.data[0]);
 }
 
