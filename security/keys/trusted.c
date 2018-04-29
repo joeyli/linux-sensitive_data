@@ -1003,13 +1003,6 @@ static int trusted_instantiate(struct key *key,
 		goto out;
 	}
 
-	if (payload->key != NULL && payload->key_len) {
-		int ret;
-		ret = register_sensitive_data(payload->key, payload->key_len, key->description);
-		if (ret < 0)
-			pr_err("register key sensitive data failed: %d\n", ret);
-	}
-
 	dump_payload(payload);
 	dump_options(options);
 
@@ -1047,9 +1040,12 @@ static int trusted_instantiate(struct key *key,
 out:
 	kzfree(datablob);
 	kzfree(options);
-	if (!ret)
+	if (!ret) {
 		rcu_assign_keypointer(key, payload);
-	else {
+		if (register_sensitive_data(payload->key, payload->key_len,
+					key->description) < 0)
+			pr_err("register key sensitive data failed: %d\n", ret);
+	} else {
 		unregister_sensitive_data(payload->key, payload->key_len, key->description);
 		kzfree(payload);
 	}
@@ -1136,8 +1132,8 @@ static int trusted_update(struct key *key, struct key_preparsed_payload *prep)
 	}
 	rcu_assign_keypointer(key, new_p);
 	unregister_sensitive_data(p->key, p->key_len, key->description);
-	ret = register_sensitive_data(new_p->key, new_p->key_len, key->description);
-	if (ret < 0)
+	if (register_sensitive_data(new_p->key, new_p->key_len,
+				    key->description) < 0)
 		pr_err("register key sensitive data failed: %d\n", ret);
 	call_rcu(&p->rcu, trusted_rcu_free);
 out:
