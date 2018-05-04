@@ -29,6 +29,7 @@
 #include <linux/rcupdate.h>
 #include <linux/scatterlist.h>
 #include <linux/ctype.h>
+#include <linux/sensitive_data.h>
 #include <crypto/aes.h>
 #include <crypto/algapi.h>
 #include <crypto/hash.h>
@@ -822,6 +823,10 @@ static int encrypted_instantiate(struct key *key,
 	}
 
 	rcu_assign_keypointer(key, epayload);
+	if (register_sensitive_data(epayload->decrypted_data,
+				    epayload->decrypted_datalen,
+				    key->description) < 0)
+		pr_err("register key sensitive data failed: %d\n", ret);
 out:
 	kzfree(datablob);
 	return ret;
@@ -886,8 +891,13 @@ static int encrypted_update(struct key *key, struct key_preparsed_payload *prep)
 	memcpy(new_epayload->iv, epayload->iv, ivsize);
 	memcpy(new_epayload->payload_data, epayload->payload_data,
 	       epayload->payload_datalen);
-
 	rcu_assign_keypointer(key, new_epayload);
+	if (register_sensitive_data(new_epayload->decrypted_data,
+				    new_epayload->decrypted_datalen,
+				    key->description) < 0)
+		pr_err("register key sensitive data failed: %d\n", ret);
+	unregister_sensitive_data(epayload->decrypted_data,
+				  epayload->decrypted_datalen, key->description);
 	call_rcu(&epayload->rcu, encrypted_rcu_free);
 out:
 	kzfree(buf);
@@ -967,6 +977,11 @@ out:
  */
 static void encrypted_destroy(struct key *key)
 {
+	struct encrypted_key_payload *p;
+
+	p = key->payload.data[0];
+	unregister_sensitive_data(p->decrypted_data,
+				  p->decrypted_datalen, key->description);
 	kzfree(key->payload.data[0]);
 }
 
